@@ -20,6 +20,9 @@ validation_data = load_dataset(
     }
 )
 
+print(type(train_data['image'][0]))
+print(type(validation_data['train']['image'][0]))
+
 # # name of column (image,gender,age,race)
 # print(traindata["train"].column_names)
 #
