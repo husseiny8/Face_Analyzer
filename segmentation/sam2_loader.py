@@ -20,133 +20,96 @@ from PIL import Image
 import torch
 import numpy as np
 from clip_selector import select_face_mask
+import sys
+from transformers import pipeline
+from pathlib import Path
 
+# main.py may sit next to this file, or one folder up (project root) -
+# add both to sys.path so `from main import load_fairface` works either way.
+_THIS_DIR = Path(__file__).resolve().parent
+for _p in (_THIS_DIR, _THIS_DIR.parent):
+    if str(_p) not in sys.path:
+        sys.path.insert(0, str(_p))
 
-def filter_masks(
-    masks,
-    image_shape,
-    min_area_ratio=0.003,
-    max_aspect_ratio=2.5,
-    border_margin=10,
-):
+from main import load_fairface
 
-    H, W = image_shape[:2]
-    image_area = H * W
-    min_area = image_area * min_area_ratio
-    min_width = int(W * 0.05)
-    min_height = int(H * 0.05)
-    filtered = []
-
-    for mask in masks:
-
-        seg = mask["segmentation"]
-
-        area = seg.sum()
-
-        if area < min_area:
-            continue
-
-        ys, xs = np.where(seg)
-
-        if len(xs) == 0:
-            continue
-
-        x1 = xs.min()
-        x2 = xs.max()
-
-        y1 = ys.min()
-        y2 = ys.max()
-
-        width = x2 - x1 + 1
-        height = y2 - y1 + 1
-
-        aspect = max(width / height, height / width)
-
-        if aspect > max_aspect_ratio:
-            continue
-
-        if width < min_width:
-            continue
-
-        if height < min_height:
-            continue
-
-        touches_border = (
-            x1 <= border_margin or
-            y1 <= border_margin or
-            x2 >= W - border_margin or
-            y2 >= H - border_margin
-        )
-
-        if touches_border:
-            continue
-
-        filtered.append(mask)
-
-    return filtered
 
 # Load SAM2 to the project
-device = "cuda" if torch.cuda.is_available() else "cpu"
-checkpoint = "../checkpoints/sam2_hiera_tiny.pt"
-config = "configs/sam2/sam2_hiera_t.yaml"
-predictor = build_sam2(config,checkpoint,device=device)
+# device = "cuda" if torch.cuda.is_available() else "cpu"
+# checkpoint = "../checkpoints/sam2_hiera_large.pt"
+# config = "../sam2/configs/sam2/sam2_hiera_l.yaml"
+# predictor = build_sam2(config,checkpoint,device=device)
+generator = pipeline("mask-generation", "../checkpoints/sam2.1-hiera-large", device="cuda")
+
 print("SAM2 Loaded Successfully")
 
-# import a test image
-image = Image.open("examples/race_Middle_Eastern.jpg").convert("RGB")
-image = np.array(image)
-print("Image Converted")
 
-# create a mask generator and pass the image to it so
-# after that we have all masks of our test image
-mask_generator = SAM2AutomaticMaskGenerator(predictor)
-print("Mask Generator Created")
-masks = mask_generator.generate(image)
-print(f"{len(masks)} masks generated")
-# now we have all masks from that photo
+# which FairFace sample to run: split is "train", "test", or "validation"
+DATASET_SPLIT = "train"
+
+# pull the image from the dataset loaded in main.py (instead of a hardcoded file)
+train_data, test_data, validation_data = load_fairface()
+dataset_splits = {"train": train_data, "test": test_data, "validation": validation_data}
+print("Dataset Split Successfully")
+
+for i in range(10,30):
+
+    sample = dataset_splits[DATASET_SPLIT][i]
+    # prepare image
+    image = np.array(sample["image"].convert("RGB"))
+    print(
+        f"Loaded sample #{i} from the '{DATASET_SPLIT}' split "
+        f"(age={sample['age']}, gender={sample['gender']}, race={sample['race']})"
+    )
+
+    # create a mask generator and pass the image to it so
+    # after that we have all masks of our test image
+    # mask_generator = SAM2AutomaticMaskGenerator(predictor)
+    # print("Mask Generator Created")
+    # masks = mask_generator.generate(image)
+    masks = generator(sample["image"], points_per_batch=64)
+    print(f"{len(masks['masks'])} masks generated")
+    # now we have all masks from that photo
+
+    if len(masks['masks']) == 0:
+        print("Error: No masks generated!")
+        continue
+
+    # show first image
+    plt.imshow(image)
+    plt.show()
+
+    # # show all masks
+    # for j, mask in enumerate(masks["masks"]):
+    #     segmented = np.ones_like(image) * 255  # white background
+    #     segmented[mask] = image[mask]
+    #     plt.figure(figsize=(6, 6))
+    #     plt.imshow(segmented)
+    #     plt.title(f"Mask {j}")
+    #     plt.axis("off")
+    #     plt.show()
+
+    best_mask = select_face_mask(image, masks)
+    # show best mask (only face)
+    segmented = np.ones_like(image) * 255  # white background
+    segmented[best_mask] = image[best_mask]
+    plt.figure(figsize=(6, 6))
+    plt.imshow(segmented)
+    plt.title("Mask")
+    plt.axis("off")
+    plt.show()
 
 
-# # show all masks
-# plt.imshow(image)
-# for mask in masks:
-#     plt.contour(mask["segmentation"])
-#     plt.show()
-
-# height, width = image.shape[:2]
-# image_area = height * width
-# min_area = image_area * 0.1
-#
-# filtered_masks = []
-#
-# for mask in masks:
-#
-#     area = mask["segmentation"].sum()
-#
-#     if area >= min_area:
-#         filtered_masks.append(mask)
-
-
-masks = filter_masks(
-    masks,
-    image.shape
-)
-print(f"{len(masks)} selected masks")
-
-best_mask = select_face_mask(image, masks)
-# Zero background
-output = image.copy()
-output[~best_mask["segmentation"]] = 0
-
-# show the selected mask
-plt.figure(figsize=(10,5))
-plt.subplot(121)
-plt.imshow(image)
-plt.title("Original")
-plt.subplot(122)
-plt.imshow(output)
-plt.title("Masked")
-plt.show()
-
-Image.fromarray(output).save(
-    "masks/masked_face.png"
-)
+    # show the selected mask vs first image
+    # plt.figure(figsize=(10, 5))
+    # plt.subplot(121)
+    # plt.imshow(image)
+    # plt.title("Original")
+    # plt.subplot(122)
+    # plt.imshow(output)
+    # plt.title(f"Masked ({DATASET_SPLIT}[{i}])")
+    # plt.show()
+    #
+    # Image.fromarray(output).save(
+    #     f"masks/masked_face_{DATASET_SPLIT}_{i}.png"
+    # )

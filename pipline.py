@@ -1,33 +1,34 @@
-from datasets import load_dataset
+import numpy as np
+from transformers import pipeline
+from PIL import Image
+import matplotlib.pyplot as plt
+from segmentation.clip_selector import select_face_mask
+
+generator = pipeline("mask-generation", "checkpoints/sam2.1-hiera-large", device="cuda")
+
+# <class 'PIL.JpegImagePlugin.JpegImageFile'>
+sample = Image.open("images (3).jpg")
+image = np.array(sample.convert("RGB"))
+
+masks = generator(sample, points_per_batch=64)
+
+print(len(masks['masks']))
+print(masks.keys())
+
+# show all masks
+plt.imshow(image)
+plt.show()
 #
-# dataset = load_dataset(
-#     "parquet",
-#     data_files={
-#         "train": "train-*.parquet"
-#     }
-# )
-#
-# sample = dataset["train"][2]
-#
-# print(sample.keys())
-# print(sample["age"])
-# print(sample["gender"])
-# print(sample["race"])
-# sample["image"].show()
+# for i in range(len(masks['masks'])):
+#     plt.imshow((masks['masks'][i]))
+#     plt.show()
+for i, mask in enumerate(masks["masks"]):
 
-import torch
+    segmented = np.ones_like(image) * 255  # white background
+    segmented[mask] = image[mask]
 
-print("CUDA available:", torch.cuda.is_available())
-print("GPU count:", torch.cuda.device_count())
-
-if torch.cuda.is_available():
-    print("GPU:", torch.cuda.get_device_name(0))
-
-device = torch.device("cuda")
-
-x = torch.randn(1000, 1000).to(device)
-y = torch.randn(1000, 1000).to(device)
-
-z = x @ y
-
-print(z.device)
+    plt.figure(figsize=(6,6))
+    plt.imshow(segmented)
+    plt.title(f"Mask {i}")
+    plt.axis("off")
+    plt.show()

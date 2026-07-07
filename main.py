@@ -1,38 +1,46 @@
+from pathlib import Path
 from datasets import load_dataset
 
-# 87000
-Datas = load_dataset(
-    "parquet",
-    data_files={
-        "train": "train-*.parquet"
-    }
-)
+BASE_DIR = Path(__file__).resolve().parent
+DATA_DIR = BASE_DIR / "data"
 
-# 70000
-train_data = Datas['train'][0:70000]
-# 17000
-test_data = Datas['train'][70000:]
-# 11000
-validation_data = load_dataset(
-    "parquet",
-    data_files={
-        "train": "validation-*.parquet"
-    }
-)
+def load_fairface():
 
-print(type(train_data['image'][0]))
-print(type(validation_data['train']['image'][0]))
-# <class 'PIL.JpegImagePlugin.JpegImageFile'>
-# <class 'PIL.JpegImagePlugin.JpegImageFile'>
+    Datas = load_dataset(
+        "parquet",
+        data_files={
+            "train": str(DATA_DIR / "train-*.parquet")
+        }
+    )
+
+    train_data = Datas["train"].select(range(0, 70000))
+
+    test_data = Datas["train"].select(
+        range(70000, len(Datas["train"]))
+    )
+
+    validation_data = load_dataset(
+        "parquet",
+        data_files={
+            "validation": str(DATA_DIR / "validation-*.parquet")
+        }
+    )["validation"]
+
+    return train_data, test_data, validation_data
 
 
-# # name of column (image,gender,age,race)
-# print(traindata["train"].column_names)
-#
-# # on sample of FairFace ds
-# sample = traindata["train"][0]
-#
-# # show one of picture in ds
+if __name__ == "__main__":
+    train_data, test_data, validation_data = load_fairface()
+
+    print(type(train_data['image'][0]))
+    print(type(validation_data['image'][0]))
+    print(type(test_data['image'][0]))
+
+    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
+    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
+    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
+
+# # show one of picture in dataset
 # import matplotlib.pyplot as plt
 # plt.imshow(sample["image"])
 # plt.show()
