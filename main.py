@@ -31,17 +31,3 @@ def load_fairface():
 
 if __name__ == "__main__":
     train_data, test_data, validation_data = load_fairface()
-
-    print(type(train_data['image'][0]))
-    print(type(validation_data['image'][0]))
-    print(type(test_data['image'][0]))
-
-    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
-    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
-    # <class 'PIL.JpegImagePlugin.JpegImageFile'>
-
-# # show one of picture in dataset
-# import matplotlib.pyplot as plt
-# plt.imshow(sample["image"])
-# plt.show()
-# # sample["image"].show()
