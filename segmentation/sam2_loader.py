@@ -13,16 +13,13 @@ Run it as:
     python sam2_loader.py --device cuda   # if you have a GPU available
 """
 
-from sam2.automatic_mask_generator import SAM2AutomaticMaskGenerator
-from sam2.build_sam import build_sam2
 import matplotlib.pyplot as plt
-from PIL import Image
-import torch
-import numpy as np
-from clip_selector import select_face_mask
+from face_crop import *
 import sys
 from transformers import pipeline
 from pathlib import Path
+from CLIP_Head import main
+from main import load_fairface
 
 # main.py may sit next to this file, or one folder up (project root) -
 # add both to sys.path so `from main import load_fairface` works either way.
@@ -31,14 +28,7 @@ for _p in (_THIS_DIR, _THIS_DIR.parent):
     if str(_p) not in sys.path:
         sys.path.insert(0, str(_p))
 
-from main import load_fairface
 
-
-# Load SAM2 to the project
-# device = "cuda" if torch.cuda.is_available() else "cpu"
-# checkpoint = "../checkpoints/sam2_hiera_large.pt"
-# config = "../sam2/configs/sam2/sam2_hiera_l.yaml"
-# predictor = build_sam2(config,checkpoint,device=device)
 generator = pipeline("mask-generation", "../checkpoints/sam2.1-hiera-large", device="cuda")
 
 print("SAM2 Loaded Successfully")
@@ -52,21 +42,71 @@ train_data, test_data, validation_data = load_fairface()
 dataset_splits = {"train": train_data, "test": test_data, "validation": validation_data}
 print("Dataset Split Successfully")
 
-for i in range(10,30):
+for i in range(100,130):
 
     sample = dataset_splits[DATASET_SPLIT][i]
     # prepare image
     image = np.array(sample["image"].convert("RGB"))
+
+        GENDER_MAP = {
+            0: "Male",
+            1: "Female"
+        }
+
+        gender = GENDER_MAP[sample["gender"]]
+
+
+        AGE_MAP = {
+            0: "0-2",
+            1: "3-9",
+            2: "10-19",
+            3: "20-29",
+            4: "30-39",
+            5: "40-49",
+            6: "50-59",
+            7: "60-69",
+            8: "70+"
+        }
+
+
+    if sample['age'] == 0:
+        age = "0-2"
+    elif sample['age'] == 1:
+        age = "3-9"
+    elif sample['age'] == 2:
+        age = "10-19"
+    elif sample['age'] == 3:
+        age = "20-29"
+    elif sample['age'] == 4:
+        age = "30-39"
+    elif sample['age'] == 5:
+        age = "40-49"
+    elif sample['age'] == 6:
+        age = "50-59"
+    elif sample['age'] == 7:
+        age = "60-69"
+    else:
+        age = "+70"
+
+        RACE_MAP = {
+            0: "East Asian",
+            1: "Indian",
+            2: "Black",
+            3: "White",
+            4: "Middle Eastern",
+            5: "Latino_Hispanic",
+            6: "Southeast Asian"
+        }
+
+        race = RACE_MAP[sample["race"]]
+
     print(
         f"Loaded sample #{i} from the '{DATASET_SPLIT}' split "
-        f"(age={sample['age']}, gender={sample['gender']}, race={sample['race']})"
+        f"(age={age}, gender={gender}, race={race})"
     )
 
     # create a mask generator and pass the image to it so
     # after that we have all masks of our test image
-    # mask_generator = SAM2AutomaticMaskGenerator(predictor)
-    # print("Mask Generator Created")
-    # masks = mask_generator.generate(image)
     masks = generator(sample["image"], points_per_batch=64)
     print(f"{len(masks['masks'])} masks generated")
     # now we have all masks from that photo
@@ -91,14 +131,15 @@ for i in range(10,30):
 
     best_mask = select_face_mask(image, masks)
     # show best mask (only face)
-    segmented = np.ones_like(image) * 255  # white background
-    segmented[best_mask] = image[best_mask]
-    plt.figure(figsize=(6, 6))
-    plt.imshow(segmented)
-    plt.title("Mask")
+    face = crop_face_from_mask(
+        image,
+        best_mask.cpu().numpy()
+    )
+
+    plt.imshow(face)
     plt.axis("off")
     plt.show()
-
+    main(face)
 
     # show the selected mask vs first image
     # plt.figure(figsize=(10, 5))
@@ -110,6 +151,6 @@ for i in range(10,30):
     # plt.title(f"Masked ({DATASET_SPLIT}[{i}])")
     # plt.show()
     #
-    # Image.fromarray(output).save(
+    # face.save(
     #     f"masks/masked_face_{DATASET_SPLIT}_{i}.png"
     # )
