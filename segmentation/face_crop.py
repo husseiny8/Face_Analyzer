@@ -4,6 +4,133 @@ from transformers import CLIPProcessor
 from transformers import CLIPModel
 import torch
 
+
+def geometry_filter(
+    image,
+    masks,
+    min_area_ratio=0.01,
+    max_area_ratio=0.65,
+    min_size=40,
+    min_aspect=0.55,
+    max_aspect=1.80,
+    max_center_ratio=0.35,
+):
+    """
+    Remove impossible face masks before CLIP.
+
+    Returns
+    -------
+    list(torch.Tensor)
+    """
+
+    H, W = image.shape[:2]
+
+    image_area = H * W
+
+    image_center = np.array([W / 2, H / 2])
+
+    max_center_distance = np.sqrt(W**2 + H**2) * max_center_ratio
+
+    filtered_masks = []
+
+    for mask in masks["masks"]:
+
+        m = mask.cpu().numpy().astype(bool)
+
+        area = m.sum()
+
+        #########################################
+        # Area
+        #########################################
+
+        if area < image_area * min_area_ratio:
+            continue
+
+        if area > image_area * max_area_ratio:
+            continue
+
+        #########################################
+        # Bounding Box
+        #########################################
+
+        ys, xs = np.where(m)
+
+        if len(xs) == 0:
+            continue
+
+        x1 = xs.min()
+        x2 = xs.max()
+
+        y1 = ys.min()
+        y2 = ys.max()
+
+        width = x2 - x1 + 1
+        height = y2 - y1 + 1
+
+        #########################################
+        # Size
+        #########################################
+
+        if width < min_size:
+            continue
+
+        if height < min_size:
+            continue
+
+        #########################################
+        # Aspect Ratio
+        #########################################
+
+        ratio = width / height
+
+        if ratio < min_aspect:
+            continue
+
+        if ratio > max_aspect:
+            continue
+
+        #########################################
+        # Border Filter
+        #########################################
+
+        border_hits = 0
+
+        if y1 == 0:
+            border_hits += 1
+
+        if y2 >= H - 1:
+            border_hits += 1
+
+        if x1 == 0:
+            border_hits += 1
+
+        if x2 >= W - 1:
+            border_hits += 1
+
+        if border_hits >= 2:
+            continue
+
+        #########################################
+        # Center Distance
+        #########################################
+
+        center = np.array(
+            [
+                (x1 + x2) / 2,
+                (y1 + y2) / 2
+            ]
+        )
+
+        distance = np.linalg.norm(center - image_center)
+
+        if distance > max_center_distance:
+            continue
+
+        filtered_masks.append(mask)
+
+    return filtered_masks
+
+
 def crop_face_from_mask(
     image,
     mask,
@@ -88,6 +215,7 @@ def crop_from_mask(image, mask):
     )
 
     return face
+
 def similarity(image):
     prompts = [
         "only a human face",
@@ -124,11 +252,18 @@ def similarity(image):
 
 
 def select_face_mask(image, masks):
+    candidate_masks = geometry_filter(
+        image,
+        masks
+    )
+
+    if len(candidate_masks) == 0:
+        return None
 
     best_score = -float("inf")
     best_mask = None
 
-    for mask in masks['masks']:
+    for mask in candidate_masks:
         cropped = crop_face_from_mask(image,mask.cpu().numpy())
         # plt.imshow(cropped)
         # plt.show()
@@ -137,5 +272,8 @@ def select_face_mask(image, masks):
         if score > best_score:
             best_score = score
             best_mask = mask
+
+    if best_mask is None:
+        return None
 
     return best_mask
