@@ -1,32 +1,9 @@
-"""
-SAM2 Loader
-
-This module provides one function:
-
-    extract_face(image)
-
-Input
------
-PIL.Image
-
-Output
-------
-PIL.Image
-    Background removed face.
-
-Returns None if no valid face is found.
-"""
-
 import numpy as np
-
 from transformers import pipeline
-
 from face_crop import (
     crop_face_from_mask,
     select_face_mask
 )
-
-##########################################################
 
 generator = pipeline(
     task="mask-generation",
@@ -36,59 +13,26 @@ generator = pipeline(
 
 print("SAM2 Loaded Successfully")
 
-##########################################################
-
-
 def extract_face(image):
 
-    """
-    Parameters
-    ----------
-    image : PIL.Image
+    image_np = np.array(image.convert("RGB"))
 
-    Returns
-    -------
-    PIL.Image or None
-    """
-
-    image_np = np.array(
-        image.convert("RGB")
-    )
-
-    ######################################################
-
-    masks = generator(
-        image,
-        points_per_batch=64
-    )
-
-    ######################################################
+    masks = generator(image,points_per_batch=64)
 
     if len(masks["masks"]) == 0:
-
         return None
-
-    ######################################################
 
     best_mask = select_face_mask(
         image_np,
         masks
     )
 
-    ######################################################
-
     if best_mask is None:
-
         return None
 
-    ######################################################
-
     face = crop_face_from_mask(
-
         image_np,
-
         best_mask.cpu().numpy()
-
     )
 
     return face

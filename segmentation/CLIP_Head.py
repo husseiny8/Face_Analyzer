@@ -3,31 +3,13 @@ import torch
 from PIL import Image
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
 MODEL_PATH = r"..\models\clip-vit-base-patch32"
-
 model = CLIPModel.from_pretrained(MODEL_PATH).to(device)
 processor = CLIPProcessor.from_pretrained(MODEL_PATH)
-
 model.eval()
 
 
-# -----------------------------
-# Generic CLIP classifier
-# -----------------------------
 def classify(image, prompts):
-    """
-    Classify an image using CLIP and a list of text prompts.
-
-    Returns:
-        {
-            "label": predicted label,
-            "index": predicted class index,
-            "confidence": confidence score,
-            "probabilities": list of probabilities
-        }
-    """
-
     inputs = processor(
         images=image,
         text=prompts,
@@ -55,9 +37,7 @@ def classify(image, prompts):
     }
 
 
-# -----------------------------
 # Age Head
-# -----------------------------
 AGE_PROMPTS = [
     "a portrait of a person between 0 and 2 years old",
     "a portrait of a person between 3 and 9 years old",
@@ -75,9 +55,7 @@ def age_head(image):
     return classify(image, AGE_PROMPTS)
 
 
-# -----------------------------
 # Gender Head
-# -----------------------------
 GENDER_PROMPTS = [
     "a portrait of a man",
     "a portrait of a woman"
@@ -88,9 +66,7 @@ def gender_head(image):
     return classify(image, GENDER_PROMPTS)
 
 
-# -----------------------------
 # Race Head (FairFace Classes)
-# -----------------------------
 RACE_PROMPTS = [
     "a portrait of an East Asian person",
     "a portrait of an Indian person",

@@ -15,44 +15,26 @@ def geometry_filter(
     max_aspect=1.80,
     max_center_ratio=0.35,
 ):
-    """
-    Remove impossible face masks before CLIP.
-
-    Returns
-    -------
-    list(torch.Tensor)
-    """
 
     H, W = image.shape[:2]
-
     image_area = H * W
-
     image_center = np.array([W / 2, H / 2])
-
     max_center_distance = np.sqrt(W**2 + H**2) * max_center_ratio
-
     filtered_masks = []
 
     for mask in masks["masks"]:
 
         m = mask.cpu().numpy().astype(bool)
-
         area = m.sum()
 
-        #########################################
         # Area
-        #########################################
-
         if area < image_area * min_area_ratio:
             continue
 
         if area > image_area * max_area_ratio:
             continue
 
-        #########################################
         # Bounding Box
-        #########################################
-
         ys, xs = np.where(m)
 
         if len(xs) == 0:
@@ -67,20 +49,14 @@ def geometry_filter(
         width = x2 - x1 + 1
         height = y2 - y1 + 1
 
-        #########################################
         # Size
-        #########################################
-
         if width < min_size:
             continue
 
         if height < min_size:
             continue
 
-        #########################################
         # Aspect Ratio
-        #########################################
-
         ratio = width / height
 
         if ratio < min_aspect:
@@ -89,10 +65,7 @@ def geometry_filter(
         if ratio > max_aspect:
             continue
 
-        #########################################
         # Border Filter
-        #########################################
-
         border_hits = 0
 
         if y1 == 0:
@@ -110,16 +83,8 @@ def geometry_filter(
         if border_hits >= 2:
             continue
 
-        #########################################
         # Center Distance
-        #########################################
-
-        center = np.array(
-            [
-                (x1 + x2) / 2,
-                (y1 + y2) / 2
-            ]
-        )
+        center = np.array([(x1 + x2) / 2,(y1 + y2) / 2])
 
         distance = np.linalg.norm(center - image_center)
 
@@ -137,22 +102,6 @@ def crop_face_from_mask(
     padding=0.15,
     background_color=(0, 0, 0)
 ):
-    """
-    Parameters
-    ----------
-    image : numpy.ndarray (H,W,3)
-
-    mask : numpy.ndarray (H,W)
-        Boolean face mask.
-
-    padding : float
-        Percentage of padding around the face.
-
-    Returns
-    -------
-    PIL.Image
-        Cropped face with background removed.
-    """
 
     if mask.dtype != bool:
         mask = mask.astype(bool)
@@ -190,8 +139,6 @@ def crop_face_from_mask(
 
     return Image.fromarray(output)
 
-# The model uses a ViT-B/32 Transformer architecture as an image encoder and uses a masked self-attention Transformer as a text encoder.
-# These encoders are trained to maximize the similarity of (image, text) pairs via a contrastive loss.
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = r"..\models\clip-vit-base-patch32"
@@ -252,18 +199,20 @@ def similarity(image):
 
 
 def select_face_mask(image, masks):
-    candidate_masks = geometry_filter(
-        image,
-        masks
-    )
 
-    if len(candidate_masks) == 0:
-        return None
+    # candidate_masks = geometry_filter(
+    #     image,
+    #     masks
+    # )
+    #
+    # if len(candidate_masks) == 0:
+    #     return None
 
     best_score = -float("inf")
     best_mask = None
 
-    for mask in candidate_masks:
+    # for mask in candidate_masks:
+    for mask in masks['masks']:
         cropped = crop_face_from_mask(image,mask.cpu().numpy())
         # plt.imshow(cropped)
         # plt.show()
