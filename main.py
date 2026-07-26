@@ -31,12 +31,3 @@ def load_fairface():
 
 if __name__ == "__main__":
     train_data, test_data, validation_data = load_fairface()
-    inp = input("1.SAM2\n"
-                "2.No SAM2\n")
-    if inp.lower() == "1":
-        pass
-    elif inp.lower() == "2":
-        pass
-    else:
-        print("Invalid input")
-        exit()

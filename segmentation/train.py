@@ -1,92 +1,217 @@
-import random
-import numpy as np
+"""
+train.py
+
+Training Entry Point
+
+User can choose one of two modes:
+
+1) Train directly on FairFace images
+
+2) Train on SAM2 extracted faces
+
+Architecture
+
+Image
+   │
+   ▼
+Vision Encoder (Frozen)
+   │
+Projection
+   │
+├──────────────┐
+│              │
+▼              ▼
+Gender Head    Age Head
+               │
+               ▼
+           Race Head
+"""
+
+from pathlib import Path
+
 import torch
 from torch.utils.data import DataLoader
 
-from dataset import FaceDataset
+from main import load_fairface
+
 from trainer import Trainer
 
+from dataset import FaceDataset
+
+from fairface_dataset import FairFaceDataset
 ############################################################
-# Configuration
-############################################################
-
-# Dataset
-TRAIN_IMAGE_DIR = "processed_faces/train"
-TRAIN_LABEL_FILE = "labels/train.csv"
-
-VALID_IMAGE_DIR = TRAIN_IMAGE_DIR
-VALID_LABEL_FILE = TRAIN_LABEL_FILE
-
-# Encoder
-ENCODER_NAME = "clip"
-MODEL_PATH = "../models/clip-vit-base-patch32"
-
-# Training
-BATCH_SIZE = 16
-NUM_WORKERS = 4
-EPOCHS = 20
-
-LEARNING_RATE = 1e-4
-WEIGHT_DECAY = 1e-4
-
-FREEZE_ENCODER = True
-
-PROJECTION_DIM = 512
-
-CHECKPOINT_DIR = "checkpoints"
-
-SEED = 42
-
-
-############################################################
-# Seed
+# Ask Dataset Mode
 ############################################################
 
-def set_seed(seed):
+def ask_dataset_mode():
 
-    random.seed(seed)
+    print()
 
-    np.random.seed(seed)
+    print("=" * 60)
+    print("Dataset Selection")
+    print("=" * 60)
 
-    torch.manual_seed(seed)
+    print("1) Original FairFace Images")
 
-    if torch.cuda.is_available():
+    print("2) SAM2 Cropped Faces")
 
-        torch.cuda.manual_seed(seed)
+    print("=" * 60)
 
-        torch.cuda.manual_seed_all(seed)
+    while True:
 
-    torch.backends.cudnn.deterministic = True
+        choice = input("Select (1 or 2): ").strip()
 
-    torch.backends.cudnn.benchmark = False
+        if choice == "1":
 
+            return False
+
+        elif choice == "2":
+
+            return True
+
+        print("Invalid choice.")
 
 ############################################################
-# Count Parameters
+# Check Processed Dataset
 ############################################################
 
-def count_parameters(model):
+def processed_dataset_exists():
 
-    trainable = sum(
+    folders = [
 
-        p.numel()
+        "processed_faces/train",
 
-        for p in model.parameters()
+        "processed_faces/validation",
 
-        if p.requires_grad
+        "labels/train.csv",
+
+        "labels/validation.csv"
+
+    ]
+
+    for item in folders:
+
+        if not Path(item).exists():
+
+            return False
+
+    return True
+
+############################################################
+# Build SAM Dataset
+############################################################
+
+def build_sam_dataset():
+
+    if not processed_dataset_exists():
+
+        print()
+
+        print("=" * 60)
+
+        print("Processed dataset not found.")
+
+        print("Running preprocess_dataset.py")
+
+        print("=" * 60)
+
+        import preprocess_dataset
+
+        preprocess_dataset.main()
+
+    train_dataset = FaceDataset(
+
+        image_dir="processed_faces/train",
+
+        csv_file="labels/train.csv",
+
+        encoder_name="clip"
 
     )
 
-    total = sum(
+    validation_dataset = FaceDataset(
 
-        p.numel()
+        image_dir="processed_faces/validation",
 
-        for p in model.parameters()
+        csv_file="labels/validation.csv",
+
+        encoder_name="clip"
 
     )
 
-    return trainable, total
+    return train_dataset, validation_dataset
 
+############################################################
+# Build FairFace Dataset
+############################################################
+
+def build_fairface_dataset():
+
+    train_data, test_data, validation_data = load_fairface()
+
+    train_dataset = FairFaceDataset(
+
+        train_data,
+
+        encoder_name="clip"
+
+    )
+
+    validation_dataset = FairFaceDataset(
+
+        validation_data,
+
+        encoder_name="clip"
+
+    )
+
+    return train_dataset, validation_dataset
+
+############################################################
+# Create DataLoaders
+############################################################
+
+def create_dataloaders(
+
+        train_dataset,
+
+        validation_dataset,
+
+        batch_size=16,
+
+        num_workers=4
+
+):
+
+    train_loader = DataLoader(
+
+        train_dataset,
+
+        batch_size=batch_size,
+
+        shuffle=True,
+
+        num_workers=num_workers,
+
+        pin_memory=torch.cuda.is_available()
+
+    )
+
+    validation_loader = DataLoader(
+
+        validation_dataset,
+
+        batch_size=batch_size,
+
+        shuffle=False,
+
+        num_workers=num_workers,
+
+        pin_memory=torch.cuda.is_available()
+
+    )
+
+    return train_loader, validation_loader
 
 ############################################################
 # Main
@@ -95,78 +220,67 @@ def count_parameters(model):
 def main():
 
     ########################################################
-    # Random Seed
+    # Ask User
     ########################################################
 
-    set_seed(SEED)
+    use_sam = ask_dataset_mode()
 
     ########################################################
     # Dataset
     ########################################################
 
+    print()
     print("=" * 70)
     print("Loading Dataset...")
     print("=" * 70)
 
-    train_dataset = FaceDataset(
+    if use_sam:
 
-        image_dir=TRAIN_IMAGE_DIR,
+        train_dataset, validation_dataset = build_sam_dataset()
 
-        csv_file=TRAIN_LABEL_FILE,
+        dataset_name = "SAM2 Cropped Faces"
 
-        encoder_name=ENCODER_NAME,
+    else:
 
-        processor_path=MODEL_PATH
+        train_dataset, validation_dataset = build_fairface_dataset()
 
-    )
-
-    validation_dataset = FaceDataset(
-
-        image_dir=VALID_IMAGE_DIR,
-
-        csv_file=VALID_LABEL_FILE,
-
-        encoder_name=ENCODER_NAME,
-
-        processor_path=MODEL_PATH
-
-    )
+        dataset_name = "Original FairFace"
 
     ########################################################
     # DataLoader
     ########################################################
 
-    train_loader = DataLoader(
+    train_loader, validation_loader = create_dataloaders(
 
-        train_dataset,
+        train_dataset=train_dataset,
 
-        batch_size=BATCH_SIZE,
+        validation_dataset=validation_dataset,
 
-        shuffle=True,
+        batch_size=16,
 
-        num_workers=NUM_WORKERS,
-
-        pin_memory=torch.cuda.is_available(),
-
-        drop_last=False
+        num_workers=4
 
     )
 
-    validation_loader = DataLoader(
+    ########################################################
+    # Dataset Information
+    ########################################################
 
-        validation_dataset,
+    print()
 
-        batch_size=BATCH_SIZE,
+    print("=" * 70)
 
-        shuffle=False,
+    print("Dataset Information")
 
-        num_workers=NUM_WORKERS,
+    print("=" * 70)
 
-        pin_memory=torch.cuda.is_available(),
+    print(f"Dataset Mode      : {dataset_name}")
 
-        drop_last=False
+    print(f"Training Images   : {len(train_dataset)}")
 
-    )
+    print(f"Validation Images : {len(validation_dataset)}")
+
+    print()
 
     ########################################################
     # Trainer
@@ -174,19 +288,27 @@ def main():
 
     trainer = Trainer(
 
-        encoder_name=ENCODER_NAME,
+        encoder_name="clip",
 
-        model_path=MODEL_PATH,
+        model_path="../models/clip-vit-base-patch32",
 
-        projection_dim=PROJECTION_DIM,
+        projection_dim=512,
 
-        freeze_encoder=FREEZE_ENCODER,
+        freeze_encoder=True,
 
-        lr=LEARNING_RATE,
+        lr=1e-4,
 
-        weight_decay=WEIGHT_DECAY,
+        weight_decay=1e-4,
 
-        checkpoint_dir=CHECKPOINT_DIR
+        gender_weight=1.0,
+
+        age_weight=1.0,
+
+        race_weight=1.0,
+
+        checkpoint_dir="checkpoints",
+
+        patience=5
 
     )
 
@@ -194,31 +316,43 @@ def main():
     # Model Information
     ########################################################
 
-    trainable, total = count_parameters(trainer.model)
+    trainable_params = sum(
+
+        p.numel()
+
+        for p in trainer.model.parameters()
+
+        if p.requires_grad
+
+    )
+
+    total_params = sum(
+
+        p.numel()
+
+        for p in trainer.model.parameters()
+
+    )
 
     print()
 
     print("=" * 70)
-    print("Dataset Information")
-    print("=" * 70)
 
-    print(f"Training Images   : {len(train_dataset)}")
-    print(f"Validation Images : {len(validation_dataset)}")
-
-    print()
-
-    print("=" * 70)
     print("Model Information")
+
     print("=" * 70)
 
-    print(f"Encoder           : {ENCODER_NAME}")
-    print(f"Frozen Encoder    : {FREEZE_ENCODER}")
-    print(f"Projection Dim    : {PROJECTION_DIM}")
+    print("Encoder           : CLIP")
+
+    print("Frozen Encoder    : True")
+
+    print("Projection Dim    : 512")
 
     print()
 
-    print(f"Trainable Params  : {trainable:,}")
-    print(f"Total Params      : {total:,}")
+    print(f"Trainable Params  : {trainable_params:,}")
+
+    print(f"Total Params      : {total_params:,}")
 
     print("=" * 70)
 
@@ -232,39 +366,45 @@ def main():
 
         validation_loader=validation_loader,
 
-        epochs=EPOCHS
+        epochs=20
 
     )
 
+    ########################################################
+    # Finished
     ########################################################
 
     print()
 
     print("=" * 70)
+
     print("Training Finished Successfully")
+
     print("=" * 70)
 
     print()
 
     print("Best model saved to:")
 
-    print(f"{CHECKPOINT_DIR}/best_model.pt")
+    print("checkpoints/best_model.pt")
 
     print()
 
     print("Last model saved to:")
 
-    print(f"{CHECKPOINT_DIR}/last_model.pt")
+    print("checkpoints/last_model.pt")
 
     print()
 
     print("History saved to:")
 
-    print(f"{CHECKPOINT_DIR}/history.csv")
+    print("checkpoints/history.csv")
 
     return history
 
 
+############################################################
+# Entry
 ############################################################
 
 if __name__ == "__main__":

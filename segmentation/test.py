@@ -1,367 +1,564 @@
-import os
+"""
+test.py
+
+Evaluate trained Multi-Task model on the Test set.
+
+Outputs
+-------
+- Overall Accuracy
+- Gender Accuracy
+- Age Accuracy
+- Race Accuracy
+
+- Confusion Matrix
+- Classification Report
+
+- prediction.csv
+"""
+
 from pathlib import Path
 
-import pandas as pd
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 import torch
-import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
+    classification_report,
     confusion_matrix
 )
 
+import pandas as pd
+from tqdm import tqdm
+
 from dataset import FaceDataset
-from trainer import Trainer
+from main import load_fairface
+from multitask_model import MultiTaskModel
 
+def main():
 
-############################################################
-# Configuration
-############################################################
+    ############################################################
+    # Device
+    ############################################################
 
-TEST_IMAGE_DIR = "processed_faces/test"
+    device = torch.device(
 
-TEST_CSV = "labels/test.csv"
+        "cuda"
 
-CHECKPOINT = "checkpoints/best_model.pt"
+        if torch.cuda.is_available()
 
-BATCH_SIZE = 16
-
-DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
-
-
-############################################################
-# Dataset
-############################################################
-
-test_dataset = FaceDataset(
-
-    image_dir=TEST_IMAGE_DIR,
-
-    csv_file=TEST_CSV,
-
-    encoder_name="clip"
-
-)
-
-test_loader = DataLoader(
-
-    test_dataset,
-
-    batch_size=BATCH_SIZE,
-
-    shuffle=False,
-
-    num_workers=4,
-
-    pin_memory=True
-
-)
-
-
-############################################################
-# Trainer
-############################################################
-
-trainer = Trainer(
-
-    encoder_name="clip",
-
-    freeze_encoder=True
-
-)
-
-trainer.load_checkpoint("best_model.pt")
-
-model = trainer.model
-
-model.eval()
-
-
-############################################################
-# Loss
-############################################################
-
-gender_loss_fn = nn.BCEWithLogitsLoss()
-
-age_loss_fn = nn.CrossEntropyLoss()
-
-race_loss_fn = nn.CrossEntropyLoss()
-
-
-############################################################
-# Statistics
-############################################################
-
-gender_true = []
-gender_pred = []
-
-age_true = []
-age_pred = []
-
-race_true = []
-race_pred = []
-
-total_loss = 0.0
-
-
-############################################################
-# Evaluation
-############################################################
-
-with torch.no_grad():
-
-    for batch in test_loader:
-
-        images = batch["pixel_values"].to(DEVICE)
-
-        gender = batch["gender"].to(DEVICE).unsqueeze(1)
-
-        age = batch["age"].to(DEVICE)
-
-        race = batch["race"].to(DEVICE)
-
-        outputs = model(images)
-
-        ####################################################
-
-        gender_loss = gender_loss_fn(
-
-            outputs["gender"],
-
-            gender
-
-        )
-
-        age_loss = age_loss_fn(
-
-            outputs["age"],
-
-            age
-
-        )
-
-        race_loss = race_loss_fn(
-
-            outputs["race"],
-
-            race
-
-        )
-
-        loss = (
-
-            gender_loss +
-
-            age_loss +
-
-            race_loss
-
-        )
-
-        total_loss += loss.item()
-
-        ####################################################
-        # Predictions
-        ####################################################
-
-        gender_prediction = (
-
-            torch.sigmoid(outputs["gender"]) >= 0.5
-
-        ).long()
-
-        age_prediction = outputs["age"].argmax(dim=1)
-
-        race_prediction = outputs["race"].argmax(dim=1)
-
-        ####################################################
-
-        gender_true.extend(
-
-            gender.cpu().numpy().flatten()
-
-        )
-
-        gender_pred.extend(
-
-            gender_prediction.cpu().numpy().flatten()
-
-        )
-
-        ####################################################
-
-        age_true.extend(
-
-            age.cpu().numpy()
-
-        )
-
-        age_pred.extend(
-
-            age_prediction.cpu().numpy()
-
-        )
-
-        ####################################################
-
-        race_true.extend(
-
-            race.cpu().numpy()
-
-        )
-
-        race_pred.extend(
-
-            race_prediction.cpu().numpy()
-
-        )
-
-
-############################################################
-# Metrics
-############################################################
-
-results = []
-
-for name, gt, pred in [
-
-    ("Gender", gender_true, gender_pred),
-
-    ("Age", age_true, age_pred),
-
-    ("Race", race_true, race_pred)
-
-]:
-
-    accuracy = accuracy_score(gt, pred)
-
-    precision = precision_score(
-
-        gt,
-
-        pred,
-
-        average="weighted",
-
-        zero_division=0
+        else "cpu"
 
     )
 
-    recall = recall_score(
+    print("=" * 60)
+    print("Testing")
+    print("=" * 60)
+    print(f"Device : {device}")
 
-        gt,
+    ############################################################
+    # Dataset Selection
+    ############################################################
 
-        pred,
+    print()
+    print("=" * 60)
+    print("Dataset Selection")
+    print("=" * 60)
+    print("1) Original FairFace Images")
+    print("2) SAM2 Cropped Faces")
+    print("=" * 60)
 
-        average="weighted",
+    choice = input("Select (1 or 2): ").strip()
 
-        zero_division=0
+    ############################################################
+    # Original FairFace
+    ############################################################
+
+    if choice == "1":
+
+        _, test_data, _ = load_fairface()
+
+        test_dataset = FaceDataset(
+
+            dataset=test_data,
+
+            encoder_name="clip"
+
+        )
+
+        dataset_mode = "Original FairFace"
+
+    ############################################################
+    # SAM Dataset
+    ############################################################
+
+    else:
+
+        test_dataset = FaceDataset(
+
+            image_dir="processed_faces/test",
+
+            csv_file="labels/test.csv",
+
+            encoder_name="clip"
+
+        )
+
+        dataset_mode = "SAM2 Cropped Faces"
+
+    ############################################################
+    # DataLoader
+    ############################################################
+
+    test_loader = DataLoader(
+
+        test_dataset,
+
+        batch_size=32,
+
+        shuffle=False,
+
+        num_workers=4,
+
+        pin_memory=True
 
     )
 
-    f1 = f1_score(
+    print()
+    print("=" * 60)
+    print("Dataset Information")
+    print("=" * 60)
+    print(f"Dataset Mode : {dataset_mode}")
+    print(f"Test Images  : {len(test_dataset)}")
 
-        gt,
+    ############################################################
+    # Load Model
+    ############################################################
 
-        pred,
+    model = MultiTaskModel(
 
-        average="weighted",
+        encoder_name="clip",
 
-        zero_division=0
+        freeze_encoder=True
 
     )
 
-    results.append({
+    checkpoint = torch.load(
 
-        "Task": name,
+        "checkpoints/best_model.pt",
 
-        "Accuracy": accuracy,
+        map_location=device
 
-        "Precision": precision,
+    )
 
-        "Recall": recall,
+    model.load_state_dict(
 
-        "F1": f1
+        checkpoint["model_state_dict"]
+
+    )
+
+    model.to(device)
+
+    model.eval()
+
+    print()
+    print("=" * 60)
+    print("Best Model Loaded Successfully")
+    print("=" * 60)
+
+    ############################################################
+    # Containers
+    ############################################################
+
+    gender_true = []
+    gender_pred = []
+
+    age_true = []
+    age_pred = []
+
+    race_true = []
+    race_pred = []
+
+    prediction_rows = []
+
+    ############################################################
+    # Inference
+    ############################################################
+
+    print()
+    print("=" * 60)
+    print("Running Inference...")
+    print("=" * 60)
+
+    with torch.no_grad():
+
+        progress = tqdm(
+
+            test_loader,
+
+            desc="Testing"
+
+        )
+
+        image_index = 0
+
+        for batch in progress:
+
+            ####################################################
+            # Move To Device
+            ####################################################
+
+            images = batch["pixel_values"].to(device)
+
+            gender_labels = batch["gender"].cpu()
+
+            age_labels = batch["age"].cpu()
+
+            race_labels = batch["race"].cpu()
+
+            ####################################################
+            # Prediction
+            ####################################################
+
+            outputs = model.predict(images)
+
+            ####################################################
+            # Convert To CPU
+            ####################################################
+
+            gender_prediction = outputs[
+                "gender_prediction"
+            ].cpu().view(-1)
+
+            age_prediction = outputs[
+                "age_prediction"
+            ].cpu()
+
+            race_prediction = outputs[
+                "race_prediction"
+            ].cpu()
+
+            ####################################################
+            # Save Labels
+            ####################################################
+
+            gender_true.extend(
+                gender_labels.numpy().tolist()
+            )
+
+            gender_pred.extend(
+                gender_prediction.numpy().tolist()
+            )
+
+            age_true.extend(
+                age_labels.numpy().tolist()
+            )
+
+            age_pred.extend(
+                age_prediction.numpy().tolist()
+            )
+
+            race_true.extend(
+                race_labels.numpy().tolist()
+            )
+
+            race_pred.extend(
+                race_prediction.numpy().tolist()
+            )
+
+            ####################################################
+            # Save Prediction CSV
+            ####################################################
+
+            batch_size = len(age_labels)
+
+            gender_prob = outputs[
+                "gender_probability"
+            ].cpu().view(-1)
+
+            age_prob = outputs[
+                "age_probability"
+            ].cpu()
+
+            race_prob = outputs[
+                "race_probability"
+            ].cpu()
+
+            for i in range(batch_size):
+                prediction_rows.append(
+
+                    {
+
+                        "index": image_index,
+
+                        "gender_true": int(gender_labels[i]),
+
+                        "gender_pred": int(gender_prediction[i]),
+
+                        "gender_probability":
+                            float(gender_prob[i]),
+
+                        "age_true": int(age_labels[i]),
+
+                        "age_pred": int(age_prediction[i]),
+
+                        "age_confidence":
+                            float(age_prob[i].max()),
+
+                        "race_true": int(race_labels[i]),
+
+                        "race_pred": int(race_prediction[i]),
+
+                        "race_confidence":
+                            float(race_prob[i].max())
+
+                    }
+
+                )
+
+                image_index += 1
+
+    print()
+    print("=" * 60)
+    print("Inference Finished")
+    print("=" * 60)
+
+    ############################################################
+    # Evaluation
+    ############################################################
+
+    gender_accuracy = accuracy_score(
+        gender_true,
+        gender_pred
+    )
+
+    age_accuracy = accuracy_score(
+        age_true,
+        age_pred
+    )
+
+    race_accuracy = accuracy_score(
+        race_true,
+        race_pred
+    )
+
+    print()
+    print("=" * 60)
+    print("Test Results")
+    print("=" * 60)
+
+    print(f"Gender Accuracy : {gender_accuracy * 100:.2f}%")
+    print(f"Age Accuracy    : {age_accuracy * 100:.2f}%")
+    print(f"Race Accuracy   : {race_accuracy * 100:.2f}%")
+
+    ############################################################
+    # Classification Report
+    ############################################################
+
+    print()
+    print("=" * 60)
+    print("Gender Classification Report")
+    print("=" * 60)
+
+    print(
+
+        classification_report(
+
+            gender_true,
+
+            gender_pred,
+
+            digits=4
+
+        )
+
+    )
+
+    print()
+    print("=" * 60)
+    print("Age Classification Report")
+    print("=" * 60)
+
+    print(
+
+        classification_report(
+
+            age_true,
+
+            age_pred,
+
+            digits=4
+
+        )
+
+    )
+
+    print()
+    print("=" * 60)
+    print("Race Classification Report")
+    print("=" * 60)
+
+    print(
+
+        classification_report(
+
+            race_true,
+
+            race_pred,
+
+            digits=4
+
+        )
+
+    )
+
+    ############################################################
+    # Confusion Matrix
+    ############################################################
+
+    gender_cm = confusion_matrix(
+
+        gender_true,
+
+        gender_pred
+
+    )
+
+    age_cm = confusion_matrix(
+
+        age_true,
+
+        age_pred
+
+    )
+
+    race_cm = confusion_matrix(
+
+        race_true,
+
+        race_pred
+
+    )
+
+    ############################################################
+    # Save Predictions
+    ############################################################
+
+    prediction_df = pd.DataFrame(
+
+        prediction_rows
+
+    )
+
+    prediction_df.to_csv(
+
+        "predictions.csv",
+
+        index=False
+
+    )
+
+    ############################################################
+    # Save Confusion Matrices
+    ############################################################
+
+    pd.DataFrame(
+
+        gender_cm
+
+    ).to_csv(
+
+        "confusion_matrix_gender.csv",
+
+        index=False
+
+    )
+
+    pd.DataFrame(
+
+        age_cm
+
+    ).to_csv(
+
+        "confusion_matrix_age.csv",
+
+        index=False
+
+    )
+
+    pd.DataFrame(
+
+        race_cm
+
+    ).to_csv(
+
+        "confusion_matrix_race.csv",
+
+        index=False
+
+    )
+
+    ############################################################
+    # Save Summary
+    ############################################################
+
+    summary = pd.DataFrame({
+
+        "Task": [
+
+            "Gender",
+
+            "Age",
+
+            "Race"
+
+        ],
+
+        "Accuracy": [
+
+            gender_accuracy,
+
+            age_accuracy,
+
+            race_accuracy
+
+        ]
 
     })
 
-    ########################################################
-    # Confusion Matrix
-    ########################################################
+    summary.to_csv(
 
-    cm = confusion_matrix(gt, pred)
+        "test_summary.csv",
 
-    plt.figure(figsize=(6,6))
-
-    sns.heatmap(
-
-        cm,
-
-        annot=True,
-
-        fmt="d",
-
-        cmap="Blues"
+        index=False
 
     )
 
-    plt.title(f"{name} Confusion Matrix")
+    ############################################################
+    # Finish
+    ############################################################
 
-    plt.xlabel("Predicted")
+    print()
+    print("=" * 60)
+    print("Evaluation Finished Successfully")
+    print("=" * 60)
 
-    plt.ylabel("True")
+    print()
 
-    plt.tight_layout()
+    print("Files Generated:")
 
-    plt.savefig(
+    print("  predictions.csv")
 
-        f"checkpoints/{name.lower()}_confusion_matrix.png"
+    print("  test_summary.csv")
 
-    )
+    print("  confusion_matrix_gender.csv")
 
-    plt.close()
+    print("  confusion_matrix_age.csv")
 
+    print("  confusion_matrix_race.csv")
 
-############################################################
-# Save Metrics
-############################################################
+    print()
 
-results = pd.DataFrame(results)
+    print("Done.")
 
-results.to_csv(
-
-    "checkpoints/test_results.csv",
-
-    index=False
-
-)
-
-
-############################################################
-# Print
-############################################################
-
-print("=" * 60)
-
-print("Test Results")
-
-print("=" * 60)
-
-print(results)
-
-print()
-
-print(
-
-    f"Average Test Loss : "
-
-    f"{total_loss/len(test_loader):.4f}"
-
-)
+if __name__ == "__main__":
+    main()

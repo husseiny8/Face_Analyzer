@@ -16,24 +16,45 @@ from transformers import (
 class FaceDataset(Dataset):
 
     def __init__(
-        self,
-        image_dir,
-        csv_file,
-        encoder_name="clip",
-        processor_path=None,
+            self,
+            image_dir=None,
+            csv_file=None,
+            dataset=None,
+            encoder_name="clip",
+            processor_path=None
     ):
 
-        self.image_dir = Path(image_dir)
-
-        self.data = pd.read_csv(csv_file)
-
-        self.encoder_name = encoder_name.lower()
+        self.dataset = dataset
 
         ####################################################
-        # Image Processor
+        # SAM Dataset
         ####################################################
 
-        if self.encoder_name == "clip":
+        if dataset is None:
+
+            self.image_dir = Path(image_dir)
+
+            self.data = pd.read_csv(csv_file)
+
+            self.use_csv = True
+
+        ####################################################
+        # Original FairFace Dataset
+        ####################################################
+
+        else:
+
+            self.use_csv = False
+
+            self.data = dataset
+
+        ####################################################
+        # Processor
+        ####################################################
+
+        encoder_name = encoder_name.lower()
+
+        if encoder_name == "clip":
 
             if processor_path is None:
                 processor_path = "../models/clip-vit-base-patch32"
@@ -42,7 +63,7 @@ class FaceDataset(Dataset):
                 processor_path
             )
 
-        elif self.encoder_name == "siglip":
+        elif encoder_name == "siglip":
 
             if processor_path is None:
                 processor_path = "../models/siglip-base-patch16-224"
@@ -51,7 +72,7 @@ class FaceDataset(Dataset):
                 processor_path
             )
 
-        elif self.encoder_name == "dinov2":
+        elif encoder_name == "dinov2":
 
             if processor_path is None:
                 processor_path = "../models/dinov2-base"
@@ -63,7 +84,7 @@ class FaceDataset(Dataset):
         else:
 
             raise ValueError(
-                f"Unknown encoder: {encoder_name}"
+                f"Unknown encoder : {encoder_name}"
             )
 
     ########################################################
@@ -74,24 +95,40 @@ class FaceDataset(Dataset):
 
     ########################################################
 
-    def __getitem__(self, index):
-
-        row = self.data.iloc[index]
-
-        image_path = self.image_dir / row["filename"]
-
-        if not image_path.exists():
-
-            raise FileNotFoundError(image_path)
+    def __getitem__(self, idx):
 
         ####################################################
-        # Read Image
+        # SAM Dataset
         ####################################################
 
-        image = Image.open(image_path).convert("RGB")
+        if self.use_csv:
+
+            row = self.data.iloc[idx]
+
+            image = Image.open(
+                self.image_dir / row["filename"]
+            ).convert("RGB")
+
+            gender = row["gender"]
+            age = row["age"]
+            race = row["race"]
 
         ####################################################
-        # Image -> Tensor
+        # Original FairFace
+        ####################################################
+
+        else:
+
+            row = self.data[idx]
+
+            image = row["image"].convert("RGB")
+
+            gender = row["gender"]
+            age = row["age"]
+            race = row["race"]
+
+        ####################################################
+        # Image Processor
         ####################################################
 
         pixel_values = self.processor(
@@ -103,29 +140,24 @@ class FaceDataset(Dataset):
         )["pixel_values"].squeeze(0)
 
         ####################################################
-        # Labels
-        ####################################################
-
-        gender = torch.tensor(
-            row["gender"],
-            dtype=torch.float32
-        )
-
-        age = torch.tensor(
-            row["age"],
-            dtype=torch.long
-        )
-
-        race = torch.tensor(
-            row["race"],
-            dtype=torch.long
-        )
-
-        ####################################################
 
         return {
+
             "pixel_values": pixel_values,
-            "gender": gender,
-            "age": age,
-            "race": race
+
+            "gender": torch.tensor(
+                gender,
+                dtype=torch.float32
+            ),
+
+            "age": torch.tensor(
+                age,
+                dtype=torch.long
+            ),
+
+            "race": torch.tensor(
+                race,
+                dtype=torch.long
+            )
+
         }
