@@ -37,7 +37,30 @@ The project implements the main ideas required for a modern pretrained-vision pi
 The course specification for the project describes an end-to-end pipeline based on SAM, pretrained Vision Transformers, and three simultaneous prediction heads for age, gender, and race.
 
 ---
+## Example predictions
 
+### Segmented face prediction
+
+The following examples are included in the repository and show the SAM2-based masked face output together with the three model predictions.
+
+<p align="center">
+  <img src="segmented_samples/Segmented_prediction1.png" width="44%" alt="SAM2 segmented face prediction example 1">
+  <img src="segmented_samples/Segmented_prediction2.png" width="44%" alt="SAM2 segmented face prediction example 2">
+</p>
+
+### Validation / single-image outputs
+
+The project also stores prediction visualizations containing the predicted class and confidence for each task.
+
+<p align="center">
+  <img src="samples/sample_6722.png" width="30%" alt="Prediction example 10374">
+  <img src="samples/sample_8702.png" width="30%" alt="Prediction example 7554">
+  <img src="samples/sample_10039.png" width="30%" alt="Prediction example 8769">
+</p>
+
+Examples included in the repository demonstrate both successful multi-task predictions and cases where the age prediction differs from the reference age group, illustrating why class-level metrics are important.
+
+---
 ## Pipeline overview
 
 ```text
@@ -663,30 +686,6 @@ The validation and test confusion matrices in `validation_results/` and `test_re
 
 ---
 
-## Example predictions
-
-### Segmented face prediction
-
-The following examples are included in the repository and show the SAM2-based masked face output together with the three model predictions.
-
-<p align="center">
-  <img src="segmented_samples/Segmented_prediction1.png" width="44%" alt="SAM2 segmented face prediction example 1">
-  <img src="segmented_samples/Segmented_prediction2.png" width="44%" alt="SAM2 segmented face prediction example 2">
-</p>
-
-### Validation / single-image outputs
-
-The project also stores prediction visualizations containing the predicted class and confidence for each task.
-
-<p align="center">
-  <img src="samples/sample_10374.png" width="30%" alt="Prediction example 10374">
-  <img src="samples/sample_7554.png" width="30%" alt="Prediction example 7554">
-  <img src="samples/sample_8769.png" width="30%" alt="Prediction example 8769">
-</p>
-
-Examples included in the repository demonstrate both successful multi-task predictions and cases where the age prediction differs from the reference age group, illustrating why class-level metrics are important.
-
----
 
 ## Interactive inference application
 
